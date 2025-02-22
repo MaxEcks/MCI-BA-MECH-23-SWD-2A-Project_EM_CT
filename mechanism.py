@@ -139,7 +139,7 @@ class Database_editing:
         Config = Query()
         result = self.db_connector.search(Config.name == config_name)
         if result:
-            self.db_connector.update({'joints': joints, 'links': links})
+            self.db_connector.update({'joints': joints, 'links': links}, Config.name == config_name)
             return f"Konfiguration upgedated"
         else:
             self.db_connector.insert({'name': config_name, 'joints': joints, 'links': links})

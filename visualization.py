@@ -48,15 +48,24 @@ class Visualizer:
         fig, ax = plt.subplots()
         trajectories = np.array(trajectories)
 
+        x_coords = trajectories[:, :, 0]
+        y_coords = trajectories[:, :, 1]
+        x_min = np.min(x_coords) - 1
+        x_max = np.max(x_coords) + 1
+        y_min = np.min(y_coords) - 1
+        y_max = np.max(y_coords) + 1
+
         x_paths = []
         y_paths = []
 
         def update(t):
             ax.clear()
             ax.set_title(f"Simulation - Zeitpunkt {t + 1}")
-            ax.axis("equal")
+            ax.set_aspect("equal")
             ax.set_xlabel("x")
             ax.set_ylabel("y")
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
 
             current_positions = trajectories[t]
             x_current = current_positions[:, 0]
