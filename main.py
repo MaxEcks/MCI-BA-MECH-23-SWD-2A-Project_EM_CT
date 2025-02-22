@@ -12,7 +12,12 @@ Database_editing = Database_editing()
 
 #Session states initialisieren
 if "joints" not in st.session_state:
-    st.session_state["joints"] = []
+    st.session_state["joints"] = [
+        {"x": 0.0, "y": 0.0, "type": "Fixiert", "center": None, "radius": None},
+        {"x": 0.0, "y": 0.0, "type": "Fixiert", "center": None, "radius": None},
+        {"x": 0.0, "y": 0.0, "type": "Fixiert", "center": None, "radius": None},
+        {"x": 0.0, "y": 0.0, "type": "Fixiert", "center": None, "radius": None}
+    ]
 if "links" not in st.session_state:
     st.session_state["links"] = []
 
@@ -39,35 +44,48 @@ with col1:
         with col_y:
             joint["y"] = st.number_input(f"y-Koordinate Gelenk {i + 1}", value=joint["y"], step=0.1, key=f"y_{i}")
 
-        joint["type"] = st.selectbox(f"Typ Gelenk {i + 1}", ["Fixiert", "Frei beweglich", "Kreisbahnbewegung"], key=f"type_{i}")
+        joint["type"] = st.selectbox(f"Typ Gelenk {i + 1}",placeholder="Waehle Gelenktyp", options=["Fixiert", "Frei beweglich", "Kreisbahnbewegung"], key=f"type_{i}")
 
         if joint["type"] == "Kreisbahnbewegung":
-            col_center_x, col_center_y = st.columns(2)
-            with col_center_x:
-                center_x = st.number_input(
-                    f"x-Mittelpunkt Gelenk {i + 1}", 
-                    value=joint["center"][0] if joint["center"] else 0.0, 
-                    step=0.1, 
-                    key=f"center_x_{i}"
-                )
-            with col_center_y:
-                center_y = st.number_input(
-                    f"y-Mittelpunkt Gelenk {i + 1}", 
-                    value=joint["center"][1] if joint["center"] else 0.0, 
-                    step=0.1, 
-                    key=f"center_y_{i}"
-                )
+            st.write(f"Wähle ein fixiertes Gelenk als Drehpunkt:")
 
-            joint["center"] = (center_x, center_y)
+            fixed_joint_indices = []
+            for idx, j in enumerate(st.session_state["joints"]):
+                if j["type"] == "Fixiert":
+                    fixed_joint_indices.append(idx)
+            
+            if fixed_joint_indices:
+                selected_fixed_joint = st.selectbox(
+                    f"Drehpunkt für Gelenk {i + 1}",
+                    options=["Bitte auswaehlen"] + fixed_joint_indices,
+                    format_func=lambda idx: f"Gelenk {idx + 1}" if idx != "Bitte auswaehlen" else idx,
+                    key=f"center_joint_{i}"
+                )
+            
+            if selected_fixed_joint != "Bitte auswaehlen":
+                center_joint_index = selected_fixed_joint
 
-            suggested_radius = np.sqrt((joint["x"] - joint["center"][0])**2 + (joint["y"] - joint["center"][1])**2)
-            joint["radius"] = st.number_input(f"Radius Gelenk {i + 1}", value=suggested_radius, step=0.1, key=f"radius_{i}")
+                center_x = st.session_state["joints"][center_joint_index]["x"]
+                center_y = st.session_state["joints"][center_joint_index]["y"]
+
+                joint["center"] = [center_x, center_y]
+
+                suggested_radius = np.sqrt((joint["x"] - joint["center"][0])**2 + (joint["y"] - joint["center"][1])**2)
+                joint["radius"] = suggested_radius
+                st.write(f"Radius: {suggested_radius}")
+
+                new_link = (center_joint_index, i)
+                if new_link not in st.session_state["links"] and (i, center_joint_index) not in st.session_state["links"]:
+                    st.session_state["links"].append(new_link)
+                    st.success(f"Verbindung zwischen Drehpunkt {center_joint_index + 1} und Gelenk {i + 1} auf Kreisbahn hinzugefügt")
+                    time.sleep(0.5)
+                    st.rerun()
 
     #Verbindungen hinzufügen
     st.subheader("Verbindungen hinzufügen")
     joint_indices = [f"Gelenk {i + 1}" for i in range(len(st.session_state["joints"]))]
-    joint1 = st.selectbox("Gelenk 1", joint_indices, key="link_joint1")
-    joint2 = st.selectbox("Gelenk 2", joint_indices, key="link_joint2")
+    joint1 = st.selectbox("Gelenk 1", options=["Gelenk waehlen"] + joint_indices, key="link_joint1")
+    joint2 = st.selectbox("Gelenk 2", options=["Gelenk waehlen"] + joint_indices, key="link_joint2")
 
     if st.button("Verbindung hinzufügen"):
         joint1_index = joint_indices.index(joint1)
@@ -79,9 +97,18 @@ with col1:
         if not is_same_joint and not is_link_existing:
             st.session_state["links"].append((joint1_index, joint2_index))
             st.success(f"Verbindung zwischen Gelenk {joint1} und Gelenk {joint2} hinzugefügt.")
+            time.sleep(0.5)
+            st.rerun()
         else:
             st.warning("Ungültige Verbindung oder Verbindung bereits vorhanden.")
             time.sleep(1)
+            st.rerun()
+
+    if st.button("Letzte Verbindung entfernen"):
+        if st.session_state["links"]:
+            st.session_state["links"].pop()
+            st.success(f"Letzte Verbindung entfernt")
+            time.sleep(0.5)
             st.rerun()
 
     #Konfiguration speichern
@@ -97,7 +124,7 @@ with col1:
     st.subheader("Gespeicherte Konfigurationen löschen")
     saved_configs = Database_editing.find_all_configurations()
     if saved_configs:
-        selected_config_to_delete = st.selectbox("Wähle eine zu löschende Konfiguration", saved_configs, key="delete_config")
+        selected_config_to_delete = st.selectbox("Wähle eine zu löschende Konfiguration", options=["Waehle eine Konfiguration zum Loeschen"] + saved_configs, key="delete_config")
         if st.button("Löschen"):
             message = Database_editing.delete_configuration(selected_config_to_delete)
             st.success(message)
@@ -116,7 +143,7 @@ with col2:
     st.subheader("Simulation starten")
     saved_configs = Database_editing.find_all_configurations()
     if saved_configs:
-        selected_config = st.selectbox("Wähle eine gespeicherte Konfiguration aus", saved_configs)
+        selected_config = st.selectbox("Wähle eine gespeicherte Konfiguration aus", options=["Waehle einen gespeicherten Mechanismus"] + saved_configs)
         if st.button("Simulation ausführen"):
             joints, links = Database_editing.load_configuration(selected_config)
             if joints and links:

@@ -18,6 +18,17 @@ class Visualizer:
             y_pos = joint["y"]
             ax.plot(x_pos, y_pos, 'o', label=f"Gelenk {index + 1}")
 
+            if joint["type"] == "Kreisbahnbewegung" and joint["center"]:
+                center_x = joint["center"][0]
+                center_y = joint["center"][1]
+                radius = joint["radius"]
+
+                theta = np.linspace(0, 2 * np.pi, 100)
+                circle_x = center_x + radius * np.cos(theta)
+                circle_y = center_y + radius * np.sin(theta)
+
+                ax.plot(circle_x, circle_y, 'g--', linewidth=1)
+
         #Verbindungen darstellen
         for link in links:
             joint1_index = link[0]
