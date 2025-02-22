@@ -121,7 +121,17 @@ with col2:
             joints, links = Database_editing.load_configuration(selected_config)
             if joints and links:
                 mechanism = Mechanism(joints, links)
-                theta_range = np.linspace(0, 2 * np.pi, 100)
+
+                #Startwinkel berechnen
+                theta_start = 0.0
+                for joint in joints:
+                    if joint["type"] == "Kreisbewegung" and joint["center"] is not None:
+                        x_length = joint["x"] - joint["center"][0]
+                        y_length = joint["y"] - joint["center"][1]
+                        theta_start = np.arctan2(y_length, x_length)
+
+                theta_range = np.linspace(theta_start, theta_start + 2 * np.pi, 100)
+
                 trajectories = mechanism.kinematics(theta_range)
                 
                 gif_path = Visualizer.create_gif(trajectories, links)
