@@ -157,22 +157,30 @@ class Mechanism:
     def error_function(self, positions: list):
         """
         Fehlerfunktion für least_squares:
-        positions: [x1, y1, x2, y2, ...] aller NICHT-fixierten Gelenke.
+        positions: [x1, y1, x2, y2, ...] aller Frei beweglichen Gelenke.
         Vergleicht die aktuellen Längen der Links mit den Soll-Längen.
         """
-        # Aktualisieren der Positionen der beweglichen Gelenke
-        index = 0
-        for joint in self.joints:
-            if joint.type != "Fixiert":
-                joint.x = positions[index]
-                joint.y = positions[index + 1]
-                index += 2
+        # Erstellung einer Kopie der Gelenkpositionen
+        temp_positions = {}
         
-        # Berechnung der aktuellen Längen der Links
+        # Aktualisieren der Positionen der frei beweglichen Gelenke
+        index = 0
+        for i, joint in enumerate(self.joints):
+            if joint.type == "Frei beweglich":
+                # Updaten mit den Optimierungswerten
+                temp_positions[i] = {"x": positions[index], "y": positions[index + 1]}
+                index += 2
+            else:
+                # den aktuellen Wert beibehalten für Gelenke mit Kreisbahnbewegung und fixierten Gelenken
+                temp_positions[i] = {"x": joint.x, "y": joint.y}
+        
+        # Berechnung der aktuellen Längen der Links basierend auf den temp_positions
         current_lengths = []
         for link in self.links:
-            dx = link.end_joint.x - link.start_joint.x
-            dy = link.end_joint.y - link.start_joint.y
+            index_start = self.joints.index(link.start_joint)
+            index_end = self.joints.index(link.end_joint)
+            dx = temp_positions[index_end]["x"] - temp_positions[index_start]["x"]
+            dy = temp_positions[index_end]["y"] - temp_positions[index_start]["y"]
             current_lengths.append(np.sqrt(dx**2 + dy**2))
 
         # Soll-Längen aus Link-Objekten extrahieren
@@ -187,8 +195,8 @@ class Mechanism:
         Ruft least_squares auf, um die Positionen der freien Gelenke
         an die Soll-Längen anzupassen.
         """
-        # Startwerte für die beweglichen Gelenke
-        free_joints = [joint for joint in self.joints if joint.type != "Fixiert"]
+        # Startwerte für die frei beweglichen Gelenke
+        free_joints = [joint for joint in self.joints if joint.type == "Frei beweglich"]
         positions = []
         for joint in free_joints:
             positions.append(joint.x)
@@ -205,11 +213,10 @@ class Mechanism:
         # Positionen der beweglichen Gelenke nach dem Optimieren aktualisieren
         # result ist OptimizeResult-Objekt mit Attribut 'x' (Koordinaten der Gelenke)
         index = 0
-        for joint in self.joints:
-            if joint.type != "Fixiert":
-                joint.x = result.x[index]
-                joint.y = result.x[index + 1]
-                index += 2
+        for joint in free_joints:
+            joint.x = result.x[index]
+            joint.y = result.x[index + 1]
+            index += 2
 
         return result # für Auswertung von result.succes in kinematics()-Methode
 
