@@ -36,10 +36,11 @@ class Link:
     Repräsentiert eine Verbindung zwischen zwei Joint-Objekten.
     length = feste Soll-Länge (wird aus der Startkonfiguration abgeleitet)
     """
-    def __init__(self, start_joint: Joint, end_joint: Joint, length: float = None):
+    def __init__(self, start_joint: Joint, end_joint: Joint, length = None, protected = False):
         self.start_joint = start_joint
         self.end_joint = end_joint
         self.length = length
+        self.protected = protected
     
     def __repr__(self):
         l_str = f"{self.length:.2f}" if self.length is not None else "None"
@@ -54,7 +55,7 @@ def mechanism_is_valid(joints: list, links: list):
     - mindestens vier Gelenke
     - genau zwei fixierte Gelenke
     - genau ein Gelenk mit Kreisbahnbewegung
-    - Freiheitsgrad-Bedingung F = 0 (2n - 2f - 2k - g)
+    - Freiheitsgrad-Bedingung F = 2n - 2f - 2k - (g - 1) = 0
     - Graphen-Konnektivität: alle Gelenke sind zusammenhängend
     """
     # ---------------------------------------------------------
@@ -62,24 +63,24 @@ def mechanism_is_valid(joints: list, links: list):
     # ---------------------------------------------------------
     n = len(joints)
     if n < 4:
-        return False, "Ungültig: Mindestens 4 Gelenke erforderlich."
+        return False, "Konfiguration ungültig: Mindestens 4 Gelenke erforderlich."
 
     f = sum(j.type == "Fixiert" for j in joints)
     if f != 2:
-        return False, "Ungültig: Es müssen genau 2 Gelenke fixiert sein."
+        return False, "Konfiguration ungültig: Es müssen genau 2 Gelenke fixiert sein."
 
     k = sum(j.type == "Kreisbahnbewegung" for j in joints)
     if k != 1:
-        return False, "Ungültig: Es muss genau 1 Gelenk eine Kreisbahnbewegung sein."
+        return False, "Konfiguration ungültig: Es muss genau 1 Gelenk eine Kreisbahnbewegung sein."
     
     # ---------------------------------------------------------
     # 2) Freiheitsgrad-Check
     # ---------------------------------------------------------
     g = len(links)  # Anzahl Links
     # abgewandelte Grübler-Formel (für unsere Anforderungen):
-    F = 2 * n - 2 * f - 2 * k - (g - 1) # (g - 1), weil Verbindung zwischen Drehmittelpunkt und Kreisbahngelenk nicht eingerechnet wird
+    F = 2 * n - 2 * f - 2 * k - (g - 1) # (g - 1), weil Verbindung zwischen Drehmittelpunkt und Kreisbahngelenk mit angelegt wird
     if F != 0:
-        return False, f"Ungültig: Freiheitsgrad F = {F} (erwartet: 0)."
+        return False, f"Konfiguration ungültig: Freiheitsgrad F = {F} (erwartet: 0)."
     
     # ---------------------------------------------------------
     # 3) Graphen-Konnektivität prüfen
@@ -94,7 +95,7 @@ def mechanism_is_valid(joints: list, links: list):
         G.add_edge(link.start_joint, link.end_joint)
     # Konnektivität prüfen
     if not nx.is_connected(G):
-        return False, "Ungültig: Mechanismus ist nicht zusammenhängend."
+        return False, "Konfiguration ungültig: Mechanismus ist nicht zusammenhängend."
     
     # ---------------------------------------------------------
     # Wenn alle Checks bestanden sind, ist der Mechanismus gültig
@@ -123,6 +124,8 @@ class Mechanism:
         # Berechnung der Soll-Längen der Links
         self.calculate_lengths()
 
+    def __repr__(self):
+        return f"Mechanismus: {self.name}, ID: {self.id}, Version: {self.version}"
     # ==============================
     # Kinematik-Methoden:
     # ==============================
@@ -322,7 +325,8 @@ class Mechanism:
             entry = {
                 "start": start_index,
                 "end": end_index,
-                "length": link.length
+                "length": link.length,
+                "protected": link.protected
             }
             links_list.append(entry)
         
@@ -374,7 +378,7 @@ class Mechanism:
         for ld in links_data:
             start_joint = joint_objects[ld["start"]]
             end_joint = joint_objects[ld["end"]]
-            l = Link(start_joint, end_joint, ld["length"])
+            l = Link(start_joint, end_joint, ld["length"], protected=ld.get("protected", False))
             link_objects.append(l)
         
         # Mechanismus-Objekt erstellen
