@@ -124,57 +124,126 @@
                 {
                     "start": 1,
                     "end": 2,
-                    "length": 15.006748481933052
+                    "length": 15.006748481933052,
+                    "protected": false
                 },
                 {
-                    "start": 3,
-                    "end": 2,
-                    "length": 50.03462201316204
+                    "start": 2,
+                    "end": 3,
+                    "length": 50.03462201316204,
+                    "protected": false
                 },
                 {
                     "start": 3,
                     "end": 4,
-                    "length": 55.80215408028618
+                    "length": 55.80215408028618,
+                    "protected": false
                 },
                 {
-                    "start": 5,
-                    "end": 4,
-                    "length": 39.357804816833976
-                },
-                {
-                    "start": 5,
-                    "end": 6,
-                    "length": 65.76553048520175
-                },
-                {
-                    "start": 7,
-                    "end": 6,
-                    "length": 48.99768259826173
-                },
-                {
-                    "start": 7,
-                    "end": 2,
-                    "length": 61.90271480314898
-                },
-                {
-                    "start": 7,
+                    "start": 4,
                     "end": 5,
-                    "length": 37.07796245750298
+                    "length": 39.357804816833976,
+                    "protected": false
+                },
+                {
+                    "start": 5,
+                    "end": 6,
+                    "length": 65.76553048520175,
+                    "protected": false
+                },
+                {
+                    "start": 6,
+                    "end": 7,
+                    "length": 48.99768259826173,
+                    "protected": false
+                },
+                {
+                    "start": 2,
+                    "end": 7,
+                    "length": 61.90271480314898,
+                    "protected": false
+                },
+                {
+                    "start": 5,
+                    "end": 7,
+                    "length": 37.07796245750298,
+                    "protected": false
                 },
                 {
                     "start": 0,
                     "end": 7,
-                    "length": 39.305710781004834
+                    "length": 39.305710781004834,
+                    "protected": false
                 },
                 {
                     "start": 0,
                     "end": 4,
-                    "length": 40.1053911587956
+                    "length": 40.1053911587956,
+                    "protected": false
                 },
                 {
                     "start": 0,
                     "end": 3,
-                    "length": 41.50337335687305
+                    "length": 41.50337335687305,
+                    "protected": false
+                }
+            ]
+        },
+        "3": {
+            "id": "389204a1-7ed3-4953-a93e-f0b65c0935fc",
+            "version": 1,
+            "name": "Viergelenk Test",
+            "joints": [
+                {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "type": "Fixiert",
+                    "center": null,
+                    "radius": null
+                },
+                {
+                    "x": 4.0,
+                    "y": 0.0,
+                    "type": "Fixiert",
+                    "center": null,
+                    "radius": null
+                },
+                {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "type": "Kreisbahnbewegung",
+                    "center": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 1.4142135623730951
+                },
+                {
+                    "x": 1.0,
+                    "y": 5.0,
+                    "type": "Frei beweglich",
+                    "center": null,
+                    "radius": null
+                }
+            ],
+            "links": [
+                {
+                    "start": 0,
+                    "end": 2,
+                    "length": 1.4142135623730951,
+                    "protected": true
+                },
+                {
+                    "start": 1,
+                    "end": 3,
+                    "length": 5.830951894845301,
+                    "protected": false
+                },
+                {
+                    "start": 2,
+                    "end": 3,
+                    "length": 4.0,
+                    "protected": false
                 }
             ]
         }
