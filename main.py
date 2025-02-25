@@ -373,7 +373,8 @@ with col1:
         
         time.sleep(1)
         st.rerun()
-
+    
+    st.divider()
     # ============================================================================
     # Konfiguration speichern
     # ============================================================================
@@ -384,9 +385,9 @@ with col1:
     if default_name:
         config_name = st.text_input("**Name der Konfiguration**", value = default_name, key="config_name")
     else:
-        config_name = st.text_input("Name der Konfiguration", placeholder = "z.B. Viergelenkgetriebe #1", key="config_name")
+        config_name = st.text_input("**Name der Konfiguration**", placeholder = "z.B. Viergelenkgetriebe #1", key="config_name")
 
-    if st.button("Speichern", icon=":material/save:", help="Mechanismus-Konfiguration wird vor dem Speichern validiert. Ungültige Konfigurationen können nicht gespeichert werden."):
+    if st.button("**Speichern**", icon=":material/save:", help="Mechanismus-Konfiguration wird vor dem Speichern validiert. Ungültige Konfigurationen können nicht gespeichert werden."):
         if not config_name.strip():
             st.error("Bitte geben Sie einen Namen für die Konfiguration ein.")
             time.sleep(2)
@@ -573,59 +574,83 @@ with col2:
     # Simulation Mechanismus (Kinematik)
     # ============================================================================
     st.subheader(":material/animation: Kinematik Simulation", divider="blue", 
-                 help="Simulieren Sie die Kinematik des Mechanismus. Die Simulation wird als GIF-Datei ausgegeben."
+                 help="Simulieren Sie die Kinematik eines Mechanismus. Die Simulation wird als GIF-Datei ausgegeben."
     )
-    with st.expander("Simulation (Anpassung erforderlich)", expanded=False):
-        """st.subheader("Simulation starten")
-        saved_configs = Database_editing.find_all_configurations()
-        if saved_configs:
-            selected_config = st.selectbox("Wähle eine gespeicherte Konfiguration aus", options=["Waehle einen gespeicherten Mechanismus"] + saved_configs)
-            if st.button("Simulation ausführen"):
-                joints, links = Database_editing.load_configuration(selected_config)
-                if joints and links:
-                    mechanism = Mechanism(joints, links)
+    
+    all_mechs = Mechanism.find_all_mechanisms()
+    if not all_mechs:
+        st.info("Keine gespeicherten Mechanismen gefunden.")
+    else:
+        mech_map = {f"{m['name']} (Version {m['version']})": m["id"] for m in all_mechs}
 
-                    #Startwinkel berechnen
-                    theta_start = 0.0
-                    for joint in joints:
-                        if joint["type"] == "Kreisbewegung" and joint["center"] is not None:
-                            x_length = joint["x"] - joint["center"][0]
-                            y_length = joint["y"] - joint["center"][1]
-                            theta_start = np.arctan2(y_length, x_length)
+        # Mechanismus auswählen
+        chosen_label = st.selectbox("**Wähle eine gespeicherte Konfiguration aus**", options=["Keine"] + list(mech_map.keys()))
 
-                    theta_range = np.linspace(theta_start, theta_start + 2 * np.pi, 100)
+        if chosen_label != "Keine":
+            if st.button("**Simulation ausführen**", icon=":material/play_arrow:"):
+                # Mechanismus laden:
+                mechanism_id = mech_map[chosen_label]
+                mech_object = Mechanism.load_mechanism(mechanism_id)
+                if not mech_object:
+                    st.error("Mechanismus konnte nicht geladen werden.")
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    # Prüfung, ob Kinematik schon berechnet wurde (mechanism_kinematics)
+                    theta_range, trajectories = mech_object.load_kinematics(mechanism_id=mech_object.id, mechanism_version=mech_object.version)
+                    if not theta_range or not trajectories:
+                        # Keine Kinematikdaten vorhanden -> Berechnung durchführen
+                        st.info("Keine Kinematik-Daten vorhanden. Berechne Simulation ...")
+                        # Startwinkel
+                        theta_range = mech_object.compute_theta_range(steps=100)
+                        # Kinematik
+                        trajectories, fail_count = mech_object.kinematics(theta_range)
+                        # Kinematik in DB speichern
+                        if not fail_count:
+                            mech_object.save_kinematics(theta_range, trajectories)
+                            st.success("Kinematik erfolgreich berechnet und in Datenbank gespeichert.")
+                        else:
+                            st.info(f"Kinematik nicht in Datenbank gespeichert, da {fail_count} von 100 Frames fehlerhaft berechnet wurden.")
+                            st.info("Simulation wird trotzdem ausgeführt.")
+                    else:
+                        st.info("Kinematik wurde bereits berechnet. Lade Simulation ...")
 
-                    trajectories = mechanism.kinematics(theta_range)
-                    
-                    gif_path = Visualizer.create_gif(trajectories, links)
+                    print(len(theta_range))
+                    print(len(trajectories))
+                
+                    # GIF erstellen
+                    gif_path = Visualizer.create_gif(
+                        thetas=theta_range,
+                        trajectories=trajectories,
+                        joints=mech_object.joints,
+                        links=mech_object.links
+                    )
 
-                    st.subheader("Simulation als GIF:")
+                    # CSV-Datei erstellen
+                    csv_file = mech_object.save_kinematics_to_csv(theta_range=theta_range, trajectories=trajectories)
+
+                    st.subheader(":material/gif_box: Simulation als GIF:", divider="rainbow")
                     st.image(gif_path, use_container_width=True)
 
-                    csv_data = mechanism.save_kinematics_to_csv(theta_range, trajectories)
-
-                    #GIF herunterladen
-                    with open(gif_path, "rb") as file:
+                    # GIF-Datei (Simulation) herunterladen
+                    with open(gif_path, "rb") as gif_data:
                         st.download_button(
-                            label="GIF herunterladen",
-                            data=file,
+                            label="**GIF herunterladen**",
+                            data=gif_data,
                             file_name="simulation.gif",
-                            mime="image/gif"
+                            mime="image/gif",
+                            icon=":material/download:"
                         )
                         
-                    #Download der Koordinaten als .csv Datei
-                    with open(csv_data, "rb") as file:
+                    # CSV-Datei (Kinematikdaten) herunterladen
+                    with open(csv_file, "rb") as csv_data:
                         st.download_button(
-                            label="Simulationsergebnisse als CSV herunterladen",
-                            data=file,
+                            label="**Simulationsergebnisse als CSV herunterladen**",
+                            data=csv_data,
                             file_name="Coords_results.csv",
-                            mime="text/csv"
+                            mime="text/csv",
+                            icon=":material/download:"
                         )
-                        
-                else:
-                    st.error("Konfiguration konnte nicht geladen werden.")
-                    time.sleep(1)
-                    st.rerun()"""
 
 # ================================================================================
 # Debugging (Session States anzeigen)

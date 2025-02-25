@@ -279,8 +279,7 @@ class Mechanism:
                 for (x, y) in trajectories[i]: 
                     row.append(x)  
                     row.append(y)  
-                writer.writerow(row)  
-            
+                writer.writerow(row)    
         return filename 
 
     # ==============================
@@ -389,7 +388,6 @@ class Mechanism:
             mechanism_id=found["id"],
             version=found["version"]
         )
-
         return mechanism
 
     @classmethod

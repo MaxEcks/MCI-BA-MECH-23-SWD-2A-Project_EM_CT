@@ -58,7 +58,7 @@ class Visualizer:
 # Die Trajektionen animieren, um ein GIF zu erstellen 
 # ===============================================================================================
     @staticmethod
-    def create_gif(trajectories, joints, links, filename="simulation.gif"):
+    def create_gif(thetas, trajectories, joints, links, filename="simulation.gif"):
         #Erstellen der Animation
         fig, ax = plt.subplots()
         trajectories = np.array(trajectories)
@@ -148,7 +148,7 @@ class Visualizer:
 # Test für die Visualisierung - Mechanismus wird aus der DB geladen und simuliert
 # ===============================================================================================
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+
     from mechanism import Mechanism
 
     # Beispiel zum Testen von plot_configuration().
@@ -188,5 +188,5 @@ if __name__ == "__main__":
             if trajectories is None:
                 print("Keine Kinematik gefunden oder Kinematik ist veraltet")
             else:
-                gif_filename = Visualizer.create_gif(trajectories, mechanism.joints, mechanism.links)
+                gif_filename = Visualizer.create_gif(thetas, trajectories, mechanism.joints, mechanism.links)
                 print("GIF gespeichert unter:", gif_filename)
