@@ -9,6 +9,11 @@ __pycache__/
 examples/
 .vscode/
 
+# Datenbank und Ausgaben (aus Modul-Tests) ignorieren
+database.json
+coords_results.csv
+mechanism_document.tex
+
 # Distribution / packaging
 .Python
 build/
