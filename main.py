@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from mechanism import Mechanism, Joint, Link, mechanism_is_valid
 from visualization import Visualizer
 from movement_speed import StrandbeestSpeed
+from markup_language import MechanismLatex
 import time
 
 # ================================================================================
@@ -667,7 +668,7 @@ with col2:
         if not strandbeest_options:
             st.warning("Kein Strandbeest in der Datenbank gefunden.")
         else:
-            selected_mechanism = st.selectbox("**Waehle ein Strandbeest**", options=strandbeest_options.keys(), index=None, placeholder="Waehle ein Strandbeest aus")
+            selected_mechanism = st.selectbox("**Wähle ein Strandbeest**", options=strandbeest_options.keys(), index=None, placeholder="Wähle ein Strandbeest aus")
 
             if selected_mechanism:
                 mechanism_id = strandbeest_options[selected_mechanism]
@@ -685,11 +686,11 @@ with col2:
                         # Gelenkauswahl
                         joint_options = [f"Gelenk {i + 1}" for i in range(len(trajectories[0]))]
                         selected_joint = st.selectbox(
-                            "**Waehle das Gelenk mit Bodenkontakt**",
+                            "**Wähle das Gelenk mit Bodenkontakt**",
                             options=joint_options,
                             index=None,
-                            help="Waehle das Gelenk, welches für die Fortbewegung (Bodenkontakt) verantwortlich ist",
-                            placeholder="Waehle das Gelenk mit Bodenkontakt"
+                            help="Wähle das Gelenk, welches für die Fortbewegung (Bodenkontakt) verantwortlich ist",
+                            placeholder="Wähle das Gelenk mit Bodenkontakt"
                         )
                         if selected_joint is not None:
                             joint_index = joint_options.index(selected_joint)
@@ -733,6 +734,44 @@ with col2:
 
                             except ValueError as e:
                                 st.error(f"**Fehler:** {e}")
+                        
+        st.divider()
+        # ==================================================
+        # LaTex Bericht downloaden
+        # ==================================================
+        st.subheader(":material/Article: Download eines LaTex Dokuments vom gewählten Mechanismus", divider="blue", 
+                 help="Download eines LaTex Dokuments mit den Gelenken und Verbindungen gelistet und einer Grafik der Ausgangsposition"
+        )
+
+        mechanism_latex = Mechanism.find_all_mechanisms()
+        if not mechanism_latex:
+            st.info("Kein Mechanismus in der DB gefunden")
+        else:
+            mech_options_latex = {f"{m["name"]} (Version {m["version"]})": m["id"] for m in mechanism_latex}
+
+            selected_mechanism_latex = st.selectbox(
+                "**Wähle einen Mechanismus fuer das LaTex Dokument aus:**",
+                options=list(mech_options_latex.keys()),
+                index=None,
+                placeholder="Wähle einen Mechanismus"
+            )
+
+            if selected_mechanism_latex is not None:
+                mechanism_id = mech_options_latex[selected_mechanism_latex]
+                mechanism_latex_doc = Mechanism.load_mechanism(mechanism_id)
+                if mechanism_latex_doc:
+                    # LaTex Dokument erstellen
+                    latex_doc = MechanismLatex.create_document(mechanism_latex_doc)
+                    # Download-Button anzeigen
+                    st.download_button(
+                        label="LaTex Dokument herunterladen",
+                        data=latex_doc,
+                        file_name=f"mechanism.tex",
+                        mime="text/x-tex",
+                        icon=":material/download:"
+                    )
+                else:
+                    st.error("Konnte nicht geladen werden.")
 
 # ================================================================================
 # Debugging (Session States anzeigen)
