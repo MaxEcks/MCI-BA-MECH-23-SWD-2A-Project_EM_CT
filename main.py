@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mechanism import Mechanism, Joint, Link, mechanism_is_valid
 from visualization import Visualizer
+from movement_speed import StrandbeestSpeed
 import time
 
 # ================================================================================
@@ -651,6 +652,87 @@ with col2:
                             mime="text/csv",
                             icon=":material/download:"
                         )
+
+        st.divider()
+        # ======================================================
+        # Berechnung der Vorwärtsbewegung eines Strandbeests
+        # ======================================================
+        st.subheader(":material/directions_walk: Berechnung der Vorwärtsbewegung eines Strandbeestbeins", divider="blue", 
+                 help="Berechnung der Vorwärtsbewegungsgeschwindigkeit eines Strandbeestbeins, mit Angabe des maximalen Abstands des Fußes zum Boden (Fuß angehoben)."
+        )
+                
+        mechanism_speed = Mechanism.find_all_mechanisms()
+        strandbeest_options = {m["name"]: m["id"] for m in mechanisms if "Strandbeest" in m["name"]}
+
+        if not strandbeest_options:
+            st.warning("Kein Strandbeest in der Datenbank gefunden.")
+        else:
+            selected_mechanism = st.selectbox("**Waehle ein Strandbeest**", options=strandbeest_options.keys(), index=None, placeholder="Waehle ein Strandbeest aus")
+
+            if selected_mechanism:
+                mechanism_id = strandbeest_options[selected_mechanism]
+
+                # Mechanismus laden
+                mechanism = Mechanism.load_mechanism(mechanism_id)
+
+                if not mechanism:
+                    st.error("Mechanismus konnte nicht geladen werden.")
+                else:
+                    theta_range, trajectories = Mechanism.load_kinematics(mechanism_id, mechanism.version)
+                    if not trajectories:
+                        st.warning("Keine Kinematik Daten gefunden.")
+                    else:
+                        # Gelenkauswahl
+                        joint_options = [f"Gelenk {i + 1}" for i in range(len(trajectories[0]))]
+                        selected_joint = st.selectbox(
+                            "**Waehle das Gelenk mit Bodenkontakt**",
+                            options=joint_options,
+                            index=None,
+                            help="Waehle das Gelenk, welches für die Fortbewegung (Bodenkontakt) verantwortlich ist",
+                            placeholder="Waehle das Gelenk mit Bodenkontakt"
+                        )
+                        if selected_joint is not None:
+                            joint_index = joint_options.index(selected_joint)
+                        else:
+                            st.stop()
+
+                        # Eingabe für die Anzahl der Umdrehungen der Kurbel
+                        revolutions_per_minute = st.number_input(
+                            "**Umdrehungen pro Minute** (rpm):",
+                            min_value=0.01,
+                            max_value=100.0, 
+                            step=1.0,
+                            value=5.0, 
+                            help="Anzahl der Kurbelumdrehungen pro Minute."
+                        )
+
+                        # Eingabe für den maximalen Abstand zum Boden, welcher noch zulässig ist
+                        ground_contact_tolerance = st.number_input(
+                            "**Maximaler Abstand zum Boden, welcher noch akzeptiert wird:**",
+                            min_value=0.05,
+                            max_value=5.0,
+                            step=0.01,
+                            help="Maximal zulässiger Abstand zum Boden für die Fortbewegung."
+                        )
+
+                        # Berechnung ausführen
+                        if st.button("**Berechnung starten**"):
+                            try:
+                                strandbeest_vel = StrandbeestSpeed(mechanism_id, joint_index, revolutions_per_minute, theta_range, trajectories, ground_contact_tolerance)
+                                v_max, stride_length, delta_t = strandbeest_vel.calculate_max_speed()
+
+                                # Ergebnisse ausgeben
+                                st.success(f"**Geschwindigkeit:** {v_max:.2f}")
+                                st.info(f"**Schrittlaenge:** {stride_length:.2f}")
+                                st.info(f"**Bodenkontaktzeit:** {delta_t:.2f} s")
+                                                
+                                # Visualisierung vom Bodenkontakt mit welchem gerechnet wurde
+                                fig, ax = plt.subplots()
+                                fig = strandbeest_vel.plot_ground_contact()
+                                st.pyplot(fig, use_container_width=False)
+
+                            except ValueError as e:
+                                st.error(f"**Fehler:** {e}")
 
 # ================================================================================
 # Debugging (Session States anzeigen)
