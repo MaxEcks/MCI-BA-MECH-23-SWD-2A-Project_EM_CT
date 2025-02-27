@@ -9,8 +9,7 @@ __pycache__/
 examples/
 .vscode/
 
-# Datenbank und Ausgaben (aus Modul-Tests) ignorieren
-database.json
+# Ausgaben (aus Modul-Tests) ignorieren
 coords_results.csv
 mechanism_document.tex
 

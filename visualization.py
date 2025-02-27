@@ -1,10 +1,11 @@
+# visualization.py
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
 import tempfile
 
 class Visualizer:
-    
 # ===============================================================================================
 # Darstellung der aktuellen Konfiguration 
 # ===============================================================================================
@@ -43,7 +44,6 @@ class Visualizer:
             y_coords = [joint1["y"], joint2["y"]]
 
             ax.plot(x_coords, y_coords, 'b-', linewidth=2, label=f"Verbindung {joint1_index + 1}-{joint2_index + 1}")
-
 
         ax.set_xlabel("x")
         ax.set_ylabel("y")
@@ -143,7 +143,6 @@ class Visualizer:
 
         return temp_file.name
 
-
 # ===============================================================================================
 # Test für die Visualisierung - Mechanismus wird aus der DB geladen und simuliert
 # ===============================================================================================
@@ -157,8 +156,8 @@ if __name__ == "__main__":
         {"x": 0.25, "y": 0.1, "type": "Kreisbahnbewegung", "center": [0, 0], "radius": 0.26925824},
         {"x": 2.0, "y": 2.0, "type": "Frei beweglich", "center": None, "radius": None},
         {"x": 2.0, "y": 0, "type": "Fixiert", "center": None, "radius": None}
-
     ]
+
     links = [
         (0, 1),
         (1, 2),
@@ -184,7 +183,7 @@ if __name__ == "__main__":
             print("Mechanismus konnte nicht geladen werden")
         else:
             # Laden der Kinematik-Daten der ausgwaehlten Konfiguration
-            thetas, trajectories = Mechanism.load_kinematics(mechanism.id, mechanism.version)
+            thetas, trajectories = Mechanism.load_kinematics(mechanism.id, mechanism.version, steps=None)
             if trajectories is None:
                 print("Keine Kinematik gefunden oder Kinematik ist veraltet")
             else:

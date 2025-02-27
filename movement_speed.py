@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 # Berechnung der max. Vorwärtsbewegung des Strandbeestbeins
 # =============================================================
 class StrandbeestSpeed:
-    """ Klasse zur Ermittlung der maximalen Vorwärtsbewegung eines Strandbeestbeins. """
-
+    """ 
+    Klasse zur Ermittlung der maximalen Vorwärtsbewegung eines Strandbeestbeins. 
+    """
     def __init__(self, mechanism_id: str, joint_index: int, revolutions_per_minute: float, theta_range, trajectories, ground_contact_tolerance: float):
         
         if revolutions_per_minute <= 0:
@@ -44,7 +45,7 @@ class StrandbeestSpeed:
             raise ValueError("Kein Bodenkontakt erkannt.")
         
         return ground_contact_indices
-    
+
     def calculate_stride_length(self, ground_contact_indices):
         """ Schrittlänge vom Strandbeestbein berechnen """
         # x Koordinaten während des Bodenkontakts
@@ -58,7 +59,7 @@ class StrandbeestSpeed:
             raise ValueError("Keine effektive Vorwärtsbewegung möglich.")
         
         return stride_length, x_min, x_max
-    
+
     def calculate_time_steps(self, ground_contact_indices, x_min, x_max):
         """ Anzahl der Zeitframes (N) zwischen x_min und x_max berechnen"""
         # Zeitindizes zwischen x_min und x_max finden
@@ -91,7 +92,6 @@ class StrandbeestSpeed:
         v_max = stride_length / delta_t
 
         return v_max, stride_length, delta_t
-    
 
     def plot_ground_contact(self):
         """ Visualisierung der Bewegung des Gelenks als einzelne Punkte. Und der betrachteten Trajektorie für die Vorwärtsbewegung """
@@ -135,7 +135,7 @@ if __name__ == "__main__":
             print("Mechanismus konnte nicht geladen werden.")
         else:
             # Kinematik aus DB laden
-            theta_range, trajectories = Mechanism.load_kinematics(mechanism_id, mechanism.version)
+            theta_range, trajectories = Mechanism.load_kinematics(mechanism_id, mechanism.version, steps=None)
             if not trajectories:
                 print("Kinematik kann nicht geladen werden.")
             else:

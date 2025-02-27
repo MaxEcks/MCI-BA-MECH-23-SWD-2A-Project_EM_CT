@@ -14,7 +14,6 @@ class MechanismLatex:
     Ein TikZ-Diagramm zur Veranschaulichung des Mechanismus wird erzeugt.
 
     """
-
     @staticmethod
     def create_document(mechanism: Mechanism) -> str:
         # LaTex-Dokument-Kopf
@@ -115,7 +114,7 @@ class MechanismLatex:
         latex_document = header + title + details + joints_section + links_section + tikz_section + doc_end
 
         return latex_document
-    
+
 # ==========================================
 # Modultest für das Erstellen eines LaTex Dokuments
 # ==========================================

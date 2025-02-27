@@ -8,6 +8,15 @@ from visualization import Visualizer
 from movement_speed import StrandbeestSpeed
 from markup_language import MechanismLatex
 import time
+import os
+import json
+from database import DatabaseConnector
+from datetime import date
+
+# ================================================================================
+# Datenbank-Verbindung
+# ================================================================================
+db_connector = DatabaseConnector()
 
 # ================================================================================
 # Funktionen zur Validierung der Gelenktyp-Konfiguration und Berechnung der Anzahl benötigter Links
@@ -83,6 +92,13 @@ def reset_to_standard():
     ]
 
     st.session_state["links"] = []
+
+    st.session_state["protected_links"] = set()
+
+# ================================================================================
+# Callback-Funktion für Selectbox (Mechanismus laden)
+def set_flag():
+    st.session_state["load_interaction"] = True
 
 # ================================================================================
 # Konfiguration der Streamlit-Seite
@@ -249,13 +265,18 @@ with col1:
             idx = options.index(joint["type"])
         except ValueError:
             idx = 0
+
+        if st.session_state["unit"]:
+            unit = f" [{st.session_state["unit"]}]"
+        else:
+            unit = ""
             
         st.markdown(f"##### Gelenk {i + 1}")
         col_x, col_y = st.columns(2)
         with col_x:
-            joint["x"] = st.number_input(f"**x-Koordinate *Gelenk {i + 1}***", value=joint["x"], step=0.1, key=f"x_{i}")
+            joint["x"] = st.number_input(f"**x-Koordinate *Gelenk {i + 1}*{unit}**", value=joint["x"], step=0.1, key=f"x_{i}") 
         with col_y:
-            joint["y"] = st.number_input(f"**y-Koordinate *Gelenk {i + 1}***", value=joint["y"], step=0.1, key=f"y_{i}")
+            joint["y"] = st.number_input(f"**y-Koordinate *Gelenk {i + 1}*{unit}**", value=joint["y"], step=0.1, key=f"y_{i}")
 
         joint["type"] = st.selectbox(
             f"**Typ *Gelenk {i + 1}***",
@@ -276,14 +297,22 @@ with col1:
                     fixed_joint_indices.append(idx)
                     fix_joint_labels.append(f"Gelenk {idx + 1}")
             
-            if fixed_joint_indices:
-                selected_label = st.selectbox(
-                    f"**Drehpunkt *Gelenk {i + 1}***",
-                    options = fix_joint_labels,
-                    index = None,
-                    placeholder = "Bitte auswählen",
-                    key=f"center_joint_{i}"
-                )
+            # Prüfung, ob Gelenk schon center_joint_index hat
+            default_index_selectbox = None
+            if "center_joint_index" in joint:
+                cidx = joint["center_joint_index"]
+                if cidx in fixed_joint_indices:
+                    label_str = f"Gelenk {cidx + 1}"
+                    if label_str in fix_joint_labels:
+                        default_index_selectbox = fix_joint_labels.index(label_str)
+            
+            selected_label = st.selectbox(
+                f"**Drehpunkt *Gelenk {i + 1}***",
+                options = fix_joint_labels,
+                index = default_index_selectbox,
+                placeholder = "Bitte auswählen",
+                key=f"center_joint_{i}"
+            )
 
             # Überprüfung, ob Auswahl durch User getroffen wurde
             if selected_label:
@@ -385,7 +414,10 @@ with col1:
 
     default_name = st.session_state["current_mech_name"]
     if default_name:
-        config_name = st.text_input("**Name der Konfiguration**", value = default_name, key="config_name")
+        rename = st.checkbox("**Namen der Konfiguration ändern**", value=False, key="rename_config", 
+                             help="Wenn Mechanismus geladen ist und Sie den Namen nicht ändern, wird der geladene Mechanismus überschrieben (neue Version)."
+                             "Wenn Sie den Namen ändern, wird ein neuer Mechanismus erstellt.")
+        config_name = st.text_input("**Name der Konfiguration**", value = default_name, key="config_name", disabled=not rename)
     else:
         config_name = st.text_input("**Name der Konfiguration**", placeholder = "z.B. Viergelenkgetriebe #1", key="config_name")
 
@@ -439,21 +471,45 @@ with col1:
                 
                 # Update von existierendem Mechanismus
                 if st.session_state["current_mech_id"] and config_name == st.session_state["current_mech_name"]:
-                    mech = Mechanism(
+                    
+                    db_mech = Mechanism.load_mechanism(st.session_state["current_mech_id"])
+                    
+                    new_mech = Mechanism(
                         name = config_name,
                         joints = joint_objects,
                         links = link_objects,
                         mechanism_id = st.session_state["current_mech_id"],
                         version = st.session_state["current_mech_version"]
                     )
-                    mech.save_mechanism()
+                    # Kontrolle, ob es Änderungen in der Konfiguration gibt
 
-                    # Session-States aktualisieren
+                    if db_mech is None:
+                        # Fallback, falls Mechanismus nicht in DB gefunden wird, wird aktuelle Konfiguration gespeichert
+                        new_mech.save_mechanism()
+                        mech = new_mech
+                        st.success(f"Gültige Konfiguration. Mechanismus \"{mech.name}\" neu gespeichert.")
+
+                    else:
+                        # Mechanismus-Objekte vergleichen
+                        if new_mech == db_mech:
+                            # keine Änderungen -> Mechanismus nicht speichern
+                            mech = db_mech
+                            st.warning("Keine Änderungen in der Konfiguration. Mechanismus wird nicht aktualisiert.")
+                        else:
+                            # Wenn Änderungen, dann speichern
+                            new_mech.save_mechanism()
+                            mech = new_mech
+                            st.success(f"Gültige Konfiguration. Mechanismus \"{mech.name}\" erfolgreich aktualisiert. Neue Version: {mech.version}")
+
+                    # Session-States aktualisieren (gespeicherter Mechanismus wird geladen)
                     st.session_state["current_mech_id"] = mech.id
                     st.session_state["current_mech_name"] = mech.name
                     st.session_state["current_mech_version"] = mech.version
 
-                    st.success(f"Gültige Konfiguration. Mechanismus \"{mech.name}\" erfolgreich aktualisiert. Neue Version: {mech.version}")
+                    # diesen Mechanismus in Selectbox "geladener Mechanismus" setzen
+                    label_for_selectbox = f"{mech.name} (Version {mech.version})"
+                    st.session_state["load_config"] = label_for_selectbox
+
                     time.sleep(3)
                     st.rerun()
                 
@@ -462,12 +518,17 @@ with col1:
                     mech = Mechanism(name = config_name, joints = joint_objects, links = link_objects)
                     mech.save_mechanism()
 
-                    # Session-States aktualisieren
+                    # Session-States aktualisieren (gespeicherter Mechanismus wird geladen)
                     st.session_state["current_mech_id"] = mech.id
                     st.session_state["current_mech_name"] = mech.name
                     st.session_state["current_mech_version"] = mech.version
 
+                    # diesen Mechanismus in Selectbox "geladener Mechanismus" setzen
+                    label_for_selectbox = f"{mech.name} (Version {mech.version})"
+                    st.session_state["load_config"] = label_for_selectbox
+
                     st.success(f"Gültige Konfiguration. Mechanismus \"{mech.name}\" erfolgreich gespeichert.")
+
                     time.sleep(3)
                     st.rerun()
 
@@ -481,48 +542,72 @@ with col1:
     if mechanisms:
         # Mapping für die Selectbox (Anzeige: Name (Version)) -> ID
         mech_map = {f"{m["name"]} (Version {m["version"]})": m["id"] for m in mechanisms}
-        chosen_mechanism = st.selectbox("**Wähle eine gespeicherte Mechanismus-Konfiguration**", options = ["Keine"] + list(mech_map.keys()), key = "load_config")
+        chosen_mechanism = st.selectbox("**Wähle eine gespeicherte Mechanismus-Konfiguration**", options = ["Keine"] + list(mech_map.keys()), key = "load_config", on_change=set_flag)
 
-        if chosen_mechanism != "Keine":
-            if st.button("**Laden**", icon = ":material/open_in_browser:"):
-                mechanism_id = mech_map[chosen_mechanism]
-                mechanism = Mechanism.load_mechanism(mechanism_id)
-                if not mechanism:
-                    st.error("Mechanismus nicht gefunden.")
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    # Session-States aktualisieren
-                    st.session_state["current_mech_id"] = mechanism_id
-                    st.session_state["current_mech_name"] = mechanism.name
-                    st.session_state["current_mech_version"] = mechanism.version
-                    # Joint und Link Session States
-                    st.session_state["joints"] = []
-                    st.session_state["links"] = []
-                    st.session_state["protected_links"] = set()
-                    for joint in mechanism.joints:
-                        st.session_state["joints"].append({
-                            "x": joint.x,
-                            "y": joint.y,
-                            "type": joint.type,
-                            "center": joint.center,
-                            "radius": joint.radius
-                        })
-                    for link in mechanism.links:
-                        start_idx = mechanism.joints.index(link.start_joint)
-                        end_idx = mechanism.joints.index(link.end_joint)
-                        new_link = tuple(sorted((start_idx, end_idx)))
-                        st.session_state["links"].append(new_link)
-                        if link.protected:
-                            st.session_state["protected_links"].add(new_link)
+        if st.session_state.get("load_interaction", False):
+            if chosen_mechanism != "Keine":
+                if st.button("**Laden**", icon = ":material/open_in_browser:"):
+                    mechanism_id = mech_map[chosen_mechanism]
+                    mechanism = Mechanism.load_mechanism(mechanism_id)
+                    if not mechanism:
+                        st.error("Mechanismus nicht gefunden.")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        # Session-States aktualisieren
+                        st.session_state["current_mech_id"] = mechanism_id
+                        st.session_state["current_mech_name"] = mechanism.name
+                        st.session_state["current_mech_version"] = mechanism.version
+                        # Joint und Link Session States
+                        st.session_state["joints"] = []
+                        st.session_state["links"] = []
+                        st.session_state["protected_links"] = set()
+                        for joint in mechanism.joints:
+                            st.session_state["joints"].append({
+                                "x": joint.x,
+                                "y": joint.y,
+                                "type": joint.type,
+                                "center": joint.center,
+                                "radius": joint.radius
+                            })
+                        for link in mechanism.links:
+                            start_idx = mechanism.joints.index(link.start_joint)
+                            end_idx = mechanism.joints.index(link.end_joint)
+                            new_link = tuple(sorted((start_idx, end_idx)))
+                            st.session_state["links"].append(new_link)
+                            if link.protected:
+                                st.session_state["protected_links"].add(new_link)
 
-                    st.success(f"Mechanismus \"{mechanism.name}\" erfolgreich geladen.")
-                    time.sleep(2)
-                    st.rerun()
-        else:
-            st.session_state["current_mech_id"] = None
-            st.session_state["current_mech_name"] = ""
-            st.session_state["current_mech_version"] = 0
+                        # Drehpunkt finden (für Anzeige nach Laden von Mechanismus)
+                        for circ_idx, circ_joint in enumerate(st.session_state["joints"]):
+                            if circ_joint["type"] == "Kreisbahnbewegung":
+                                center_coords = circ_joint.get("center")
+                                if center_coords:
+                                    for fix_idx, fix_joint in enumerate(st.session_state["joints"]):
+                                        if fix_joint["type"] == "Fixiert":
+                                            if fix_joint["x"] == center_coords[0] and fix_joint["y"] == center_coords[1]:
+                                                st.session_state["joints"][circ_idx]["center_joint_index"] = fix_idx
+                                                found_center = True
+                                                break
+                                    if not found_center:
+                                        # Drehpunkt nicht gefunden   
+                                        st.session_state["joints"][circ_idx]["center_joint_index"] = None
+
+                        st.session_state["load_interaction"] = False
+
+                        st.success(f"Mechanismus \"{mechanism.name}\" erfolgreich geladen.")
+                        time.sleep(2)
+                        st.rerun()
+
+            elif chosen_mechanism == "Keine":
+                st.session_state["current_mech_id"] = None
+                st.session_state["current_mech_name"] = ""
+                st.session_state["current_mech_version"] = 0
+                reset_to_standard() # Session States zurücksetzen (Gelenke und Verbindungen)
+
+                st.session_state["load_interaction"] = False
+
+                st.rerun()
 
         if st.button("**Aktualisieren**", icon = ":material/refresh:", help="Aktualisieren Sie die Seite, um die geladene Konfiguration zu sehen."):
             st.rerun()
@@ -541,13 +626,58 @@ with col1:
         if selected_config_to_delete:
             if st.button("Löschen", icon=":material/delete_forever:", help="Löschen Sie die ausgewählte Konfiguration."):
                 mechanism_id = configs_map[selected_config_to_delete]
-                Mechanism.delete_mechanism(mechanism_id)
-                st.success(f"Konfiguration \"{selected_config_to_delete}\" erfolgreich gelöscht.")
-                time.sleep(2)
-                st.rerun()
+                # Prüfung, ob geladener Mechanismus gelöscht wird
+                if st.session_state["current_mech_id"] == mechanism_id:
+                    # Session-States zurücksetzen
+                    st.session_state["current_mech_id"] = None
+                    st.session_state["current_mech_name"] = ""
+                    st.session_state["current_mech_version"] = 0
+                    reset_to_standard()
+                    # Mechanismus löschen
+                    Mechanism.delete_mechanism(mechanism_id)
+                    st.success(f"Konfiguration \"{selected_config_to_delete}\" erfolgreich gelöscht.")
+                    time.sleep(2)
+                    st.rerun()
 
     st.divider()
+    # ============================================================================
+    # Datenbank exportieren / importieren
+    # ============================================================================
+    # Datenbank exportieren
+    st.subheader(":material/import_export: Datenbank exportieren", help="Exportieren Sie die aktuelle Datenbank, um ihre Daten für eine neue Sitzung wiederherzustellen.")
+    if st.button("**Backup erstellen**", icon=":material/cloud_download:", help="Erstellen Sie ein Backup der aktuellen Datenbank."):
+        # DB schließen
+        db_connector.close()
+        time.sleep(0.1)
 
+        # Backup-Datei erstellen
+        with open(db_connector.path, "rb") as f:
+            db_content = f.read()
+        # Download Button für Backup-Datei
+        st.download_button(
+            label="**Download**",
+            icon=":material/download:",
+            data=db_content,
+            file_name=f"database_backup_{date.today()}.json",
+            mime="application/json"
+        )
+
+    # Datenbank importieren
+    st.subheader(":material/import_export: Datenbank importieren", help="Importieren Sie Ihr Datenbank-Backup in der neuen Sitzung.")
+    upload_file = st.file_uploader("**Datenbank-Backup hochladen**", type=["json"])
+
+    if upload_file is not None:
+        if st.button("**Datenbank überschreiben**", icon=":material/backup_table:", help="Überschreiben Sie die aktuelle Datenbank mit der hochgeladenen Datei."):
+            # DB schließen
+            db_connector.close()
+            time.sleep(0.1)
+            # Datei überschreiben
+            with open(db_connector.path, "wb") as f:
+                f.write(upload_file.getvalue())
+
+            st.success("Datenbank erfolgreich überschrieben.")
+            time.sleep(2)
+            st.rerun()
     # ============================================================================
     # Anzeige, ob Mechanismus geladen
     # ============================================================================
@@ -582,196 +712,211 @@ with col2:
     all_mechs = Mechanism.find_all_mechanisms()
     if not all_mechs:
         st.info("Keine gespeicherten Mechanismen gefunden.")
-    else:
-        mech_map = {f"{m['name']} (Version {m['version']})": m["id"] for m in all_mechs}
+    
+    mech_map = {f"{m['name']} (Version {m['version']})": m["id"] for m in all_mechs}
 
-        # Mechanismus auswählen
-        chosen_label = st.selectbox("**Wähle eine gespeicherte Konfiguration aus**", options=["Keine"] + list(mech_map.keys()))
+    # Mechanismus auswählen
+    chosen_label = st.selectbox("**Wähle eine gespeicherte Konfiguration aus**", options=["Keine"] + list(mech_map.keys()))
 
-        if chosen_label != "Keine":
-            if st.button("**Simulation ausführen**", icon=":material/play_arrow:"):
-                # Mechanismus laden:
-                mechanism_id = mech_map[chosen_label]
-                mech_object = Mechanism.load_mechanism(mechanism_id)
-                if not mech_object:
-                    st.error("Mechanismus konnte nicht geladen werden.")
-                    time.sleep(2)
-                    st.rerun()
+    if chosen_label != "Keine":
+        steps = st.number_input("**Schrittweite Drehwinkel**", value=100, step=1, min_value=100, max_value=1000, key="step_angle", 
+                        help="Anzahl der Schritte für die Berechnung der Kinematik. Je höher der Wert, desto genauer die Simulation. Feinere Schrittweite erhöht die Berechnungszeit.")
+        # st.info(f"{steps} Schritte entsprechen {(360 / steps):.2f}° pro Frame.")
+        if st.button("**Simulation ausführen**", icon=":material/play_arrow:"):
+            # Mechanismus laden:
+            mechanism_id = mech_map[chosen_label]
+            mech_object = Mechanism.load_mechanism(mechanism_id)
+            if not mech_object:
+                st.error("Mechanismus konnte nicht geladen werden.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                # Prüfung, ob Kinematik (mit dieser Schrittweite) schon berechnet wurde (mechanism_kinematics)
+                theta_range, trajectories = mech_object.load_kinematics(mechanism_id=mech_object.id, mechanism_version=mech_object.version, steps=steps)
+                if theta_range and trajectories and len(theta_range) == steps:
+                    st.info(f"Kinematik-Eintrag für gewählten Mechanismus und Schrittweite existiert bereits. Lade Daten ...")
                 else:
-                    # Prüfung, ob Kinematik schon berechnet wurde (mechanism_kinematics)
-                    theta_range, trajectories = mech_object.load_kinematics(mechanism_id=mech_object.id, mechanism_version=mech_object.version)
-                    if not theta_range or not trajectories:
-                        # Keine Kinematikdaten vorhanden -> Berechnung durchführen
-                        st.info("Keine Kinematik-Daten vorhanden. Berechne Simulation ...")
-                        # Startwinkel
-                        theta_range = mech_object.compute_theta_range(steps=100)
-                        # Kinematik
-                        trajectories, fail_count = mech_object.kinematics(theta_range)
-                        # Kinematik in DB speichern
-                        if not fail_count:
-                            mech_object.save_kinematics(theta_range, trajectories)
-                            st.success("Kinematik erfolgreich berechnet und in Datenbank gespeichert.")
-                        else:
-                            st.info(f"Kinematik nicht in Datenbank gespeichert, da {fail_count} von 100 Frames fehlerhaft berechnet wurden.")
-                            st.info("Simulation wird trotzdem ausgeführt.")
+                    # Keine Kinematikdaten vorhanden -> Berechnung durchführen
+                    st.info("Keinen Kinematik-Eintrag für gewählten Mechanismus und Schrittweite gefunden. Berechne Simulation ...")
+                    # Startwinkel
+                    theta_range = mech_object.compute_theta_range(steps=steps)
+                    # Kinematik
+                    trajectories, fail_count = mech_object.kinematics(theta_range)
+                    # Kinematik in DB speichern
+                    if not fail_count:
+                        mech_object.save_kinematics(theta_range, trajectories, steps)
+                        st.success("Kinematik erfolgreich berechnet und in Datenbank gespeichert.")
                     else:
-                        st.info("Kinematik wurde bereits berechnet. Lade Simulation ...")
-
-                    print(len(theta_range))
-                    print(len(trajectories))
+                        st.info(f"Kinematik nicht in Datenbank gespeichert, da {fail_count} von {steps} Frames fehlerhaft berechnet wurden.")
+                        st.info("Simulation wird trotzdem ausgeführt.")
                 
-                    # GIF erstellen
-                    gif_path = Visualizer.create_gif(
-                        thetas=theta_range,
-                        trajectories=trajectories,
-                        joints=mech_object.joints,
-                        links=mech_object.links
-                    )
+                # GIF erstellen
+                gif_path = Visualizer.create_gif(
+                    thetas=theta_range,
+                    trajectories=trajectories,
+                    joints=mech_object.joints,
+                    links=mech_object.links
+                )
 
-                    # CSV-Datei erstellen
-                    csv_file = mech_object.save_kinematics_to_csv(theta_range=theta_range, trajectories=trajectories)
+                # CSV-Datei erstellen
+                csv_file = mech_object.save_kinematics_to_csv(theta_range=theta_range, trajectories=trajectories)
 
-                    st.subheader(":material/gif_box: Simulation als GIF:", divider="rainbow")
-                    st.image(gif_path, use_container_width=True)
+                st.subheader(":material/gif_box: Simulation als GIF:", divider="rainbow")
+                image = st.image(gif_path, use_container_width=True)
 
-                    # GIF-Datei (Simulation) herunterladen
-                    with open(gif_path, "rb") as gif_data:
-                        st.download_button(
-                            label="**GIF herunterladen**",
-                            data=gif_data,
-                            file_name="simulation.gif",
-                            mime="image/gif",
-                            icon=":material/download:"
-                        )
-                        
-                    # CSV-Datei (Kinematikdaten) herunterladen
-                    with open(csv_file, "rb") as csv_data:
-                        st.download_button(
-                            label="**Simulationsergebnisse als CSV herunterladen**",
-                            data=csv_data,
-                            file_name="Coords_results.csv",
-                            mime="text/csv",
-                            icon=":material/download:"
-                        )
+                if image:
+                    if st.button("**Simulation beenden**", icon=":material/stop:", help="Simulation wird beendet und Seite wird neu geladen."):
+                        st.rerun()
 
-        st.divider()
-        # ======================================================
-        # Berechnung der Vorwärtsbewegung eines Strandbeests
-        # ======================================================
-        st.subheader(":material/directions_walk: Berechnung der Vorwärtsbewegung eines Strandbeestbeins", divider="blue", 
-                 help="Berechnung der Vorwärtsbewegungsgeschwindigkeit eines Strandbeestbeins, mit Angabe des maximalen Abstands des Fußes zum Boden (Fuß angehoben)."
-        )
-                
-        mechanism_speed = Mechanism.find_all_mechanisms()
-        strandbeest_options = {m["name"]: m["id"] for m in mechanisms if "Strandbeest" in m["name"]}
-
-        if not strandbeest_options:
-            st.warning("Kein Strandbeest in der Datenbank gefunden.")
-        else:
-            selected_mechanism = st.selectbox("**Wähle ein Strandbeest**", options=strandbeest_options.keys(), index=None, placeholder="Wähle ein Strandbeest aus")
-
-            if selected_mechanism:
-                mechanism_id = strandbeest_options[selected_mechanism]
-
-                # Mechanismus laden
-                mechanism = Mechanism.load_mechanism(mechanism_id)
-
-                if not mechanism:
-                    st.error("Mechanismus konnte nicht geladen werden.")
-                else:
-                    theta_range, trajectories = Mechanism.load_kinematics(mechanism_id, mechanism.version)
-                    if not trajectories:
-                        st.warning("Keine Kinematik Daten gefunden.")
-                    else:
-                        # Gelenkauswahl
-                        joint_options = [f"Gelenk {i + 1}" for i in range(len(trajectories[0]))]
-                        selected_joint = st.selectbox(
-                            "**Wähle das Gelenk mit Bodenkontakt**",
-                            options=joint_options,
-                            index=None,
-                            help="Wähle das Gelenk, welches für die Fortbewegung (Bodenkontakt) verantwortlich ist",
-                            placeholder="Wähle das Gelenk mit Bodenkontakt"
-                        )
-                        if selected_joint is not None:
-                            joint_index = joint_options.index(selected_joint)
-                        else:
-                            st.stop()
-
-                        # Eingabe für die Anzahl der Umdrehungen der Kurbel
-                        revolutions_per_minute = st.number_input(
-                            "**Umdrehungen pro Minute** (rpm):",
-                            min_value=0.01,
-                            max_value=100.0, 
-                            step=1.0,
-                            value=5.0, 
-                            help="Anzahl der Kurbelumdrehungen pro Minute."
-                        )
-
-                        # Eingabe für den maximalen Abstand zum Boden, welcher noch zulässig ist
-                        ground_contact_tolerance = st.number_input(
-                            "**Maximaler Abstand zum Boden, welcher noch akzeptiert wird:**",
-                            min_value=0.05,
-                            max_value=5.0,
-                            step=0.01,
-                            help="Maximal zulässiger Abstand zum Boden für die Fortbewegung."
-                        )
-
-                        # Berechnung ausführen
-                        if st.button("**Berechnung starten**"):
-                            try:
-                                strandbeest_vel = StrandbeestSpeed(mechanism_id, joint_index, revolutions_per_minute, theta_range, trajectories, ground_contact_tolerance)
-                                v_max, stride_length, delta_t = strandbeest_vel.calculate_max_speed()
-
-                                # Ergebnisse ausgeben
-                                st.success(f"**Geschwindigkeit:** {v_max:.2f}")
-                                st.info(f"**Schrittlaenge:** {stride_length:.2f}")
-                                st.info(f"**Bodenkontaktzeit:** {delta_t:.2f} s")
-                                                
-                                # Visualisierung vom Bodenkontakt mit welchem gerechnet wurde
-                                fig, ax = plt.subplots()
-                                fig = strandbeest_vel.plot_ground_contact()
-                                st.pyplot(fig, use_container_width=False)
-
-                            except ValueError as e:
-                                st.error(f"**Fehler:** {e}")
-                        
-        st.divider()
-        # ==================================================
-        # LaTex Bericht downloaden
-        # ==================================================
-        st.subheader(":material/Article: Download eines LaTex Dokuments vom gewählten Mechanismus", divider="blue", 
-                 help="Download eines LaTex Dokuments mit den Gelenken und Verbindungen gelistet und einer Grafik der Ausgangsposition"
-        )
-
-        mechanism_latex = Mechanism.find_all_mechanisms()
-        if not mechanism_latex:
-            st.info("Kein Mechanismus in der DB gefunden")
-        else:
-            mech_options_latex = {f"{m["name"]} (Version {m["version"]})": m["id"] for m in mechanism_latex}
-
-            selected_mechanism_latex = st.selectbox(
-                "**Wähle einen Mechanismus fuer das LaTex Dokument aus:**",
-                options=list(mech_options_latex.keys()),
-                index=None,
-                placeholder="Wähle einen Mechanismus"
-            )
-
-            if selected_mechanism_latex is not None:
-                mechanism_id = mech_options_latex[selected_mechanism_latex]
-                mechanism_latex_doc = Mechanism.load_mechanism(mechanism_id)
-                if mechanism_latex_doc:
-                    # LaTex Dokument erstellen
-                    latex_doc = MechanismLatex.create_document(mechanism_latex_doc)
-                    # Download-Button anzeigen
+                # GIF-Datei (Simulation) herunterladen
+                with open(gif_path, "rb") as gif_data:
                     st.download_button(
-                        label="LaTex Dokument herunterladen",
-                        data=latex_doc,
-                        file_name=f"mechanism.tex",
-                        mime="text/x-tex",
+                        label="**GIF herunterladen**",
+                        data=gif_data,
+                        file_name="simulation.gif",
+                        mime="image/gif",
                         icon=":material/download:"
                     )
+                    
+                # CSV-Datei (Kinematikdaten) herunterladen
+                with open(csv_file, "rb") as csv_data:
+                    st.download_button(
+                        label="**Simulationsergebnisse als CSV herunterladen**",
+                        data=csv_data,
+                        file_name="Coords_results.csv",
+                        mime="text/csv",
+                        icon=":material/download:"
+                    )
+
+    st.divider()
+    # ======================================================
+    # Berechnung der Vorwärtsbewegung eines Strandbeests
+    # ======================================================
+    st.subheader(":material/directions_walk: Berechnung der Vorwärtsbewegung eines Strandbeestbeins", divider="blue", 
+                help="Berechnung der Vorwärtsbewegungsgeschwindigkeit eines Strandbeestbeins, mit Angabe des maximalen Abstands des Fußes zum Boden (Fuß angehoben)."
+    )
+            
+    all_mechs = Mechanism.find_all_mechanisms()
+    strandbeest_options = {f"{m['name']} (Version {m['version']})": m["id"] for m in all_mechs if "Strandbeest" in m["name"]}
+
+    if not strandbeest_options:
+        st.warning("Kein Strandbeest in der Datenbank gefunden.")
+    else:
+        selected_mechanism = st.selectbox("**Wähle ein Strandbeest**", options=strandbeest_options.keys(), index=None, placeholder="Wähle ein Strandbeest aus")
+
+        if selected_mechanism:
+            mechanism_id = strandbeest_options[selected_mechanism]
+
+            # Mechanismus laden
+            mechanism = Mechanism.load_mechanism(mechanism_id)
+
+            if not mechanism:
+                st.error("Mechanismus konnte nicht geladen werden.")
+            else:
+                theta_range, trajectories = Mechanism.load_kinematics(mechanism_id, mechanism.version, steps=None)
+                if not trajectories:
+                    st.warning("Keine Kinematik Daten gefunden.")
                 else:
-                    st.error("Konnte nicht geladen werden.")
+                    # Gelenkauswahl
+                    joint_options = [f"Gelenk {i + 1}" for i in range(len(trajectories[0]))]
+                    selected_joint = st.selectbox(
+                        "**Wähle das Gelenk mit Bodenkontakt**",
+                        options=joint_options,
+                        index=None,
+                        help="Wähle das Gelenk, welches für die Fortbewegung (Bodenkontakt) verantwortlich ist",
+                        placeholder="Wähle das Gelenk mit Bodenkontakt"
+                    )
+                    if selected_joint is not None:
+                        joint_index = joint_options.index(selected_joint)
+                    else:
+                        st.stop()
+
+                    # Eingabe für die Anzahl der Umdrehungen der Kurbel
+                    revolutions_per_minute = st.number_input(
+                        "**Umdrehungen pro Minute** (rpm):",
+                        min_value=0.01,
+                        max_value=100.0, 
+                        step=1.0,
+                        value=5.0, 
+                        help="Anzahl der Kurbelumdrehungen pro Minute."
+                    )
+
+                    # Eingabe für den maximalen Abstand zum Boden, welcher noch zulässig ist
+                    ground_contact_tolerance = st.number_input(
+                        "**Maximaler Abstand zum Boden, welcher noch akzeptiert wird:**",
+                        min_value=0.05,
+                        max_value=5.0,
+                        step=0.01,
+                        help="Maximal zulässiger Abstand zum Boden für die Fortbewegung."
+                    )
+
+                    # Berechnung ausführen
+                    if st.button("**Berechnung starten**"):
+                        try:
+                            strandbeest_vel = StrandbeestSpeed(mechanism_id, joint_index, revolutions_per_minute, theta_range, trajectories, ground_contact_tolerance)
+                            v_max, stride_length, delta_t = strandbeest_vel.calculate_max_speed()
+
+                            # Ergebnisse ausgeben
+                            # Geschwindigkeit wird immer in m/s angegeben (außer keine Längeneinheit gesetzt)
+                            if st.session_state["unit"] == "":
+                                velocity = f"{v_max:.2f}"
+                            else:
+                                if st.session_state["unit"] == "m":
+                                    velocity = f"{v_max:.2f} m/s oder {v_max * 3.6:.2f} km/h"
+                                elif st.session_state["unit"] == "cm":
+                                    velocity = f"{v_max / 100:.2f} m/s oder {v_max / 100 * 3.6:.2f} km/h"
+                                elif st.session_state["unit"] == "mm":
+                                    velocity = f"{v_max / 1000:.2f} m/s oder {v_max / 1000 * 3.6:.2f} km/h"
+                            st.info(f"**Geschwindigkeit:** {velocity}")
+                            st.info(f"**Schrittlänge:** {stride_length:.2f} {st.session_state['unit']}")
+                            st.info(f"**Bodenkontaktzeit:** {delta_t:.2f} s")
+                                            
+                            # Visualisierung vom Bodenkontakt mit welchem gerechnet wurde
+                            fig, ax = plt.subplots()
+                            fig = strandbeest_vel.plot_ground_contact()
+                            st.pyplot(fig, use_container_width=False)
+
+                        except ValueError as e:
+                            st.error(f"**Fehler:** {e}")
+                    
+    st.divider()
+    # ==================================================
+    # LaTex Bericht downloaden
+    # ==================================================
+    st.subheader(":material/Article: Download eines LaTex Dokuments vom gewählten Mechanismus", divider="blue", 
+                help="Download eines LaTex Dokuments mit den Gelenken und Verbindungen gelistet und einer Grafik der Ausgangsposition"
+    )
+
+    mechanism_latex = Mechanism.find_all_mechanisms()
+    if not mechanism_latex:
+        st.info("Kein Mechanismus in der DB gefunden")
+    else:
+        mech_options_latex = {f"{m["name"]} (Version {m["version"]})": m["id"] for m in mechanism_latex}
+
+        selected_mechanism_latex = st.selectbox(
+            "**Wähle einen Mechanismus fuer das LaTex Dokument aus:**",
+            options=list(mech_options_latex.keys()),
+            index=None,
+            placeholder="Wähle einen Mechanismus"
+        )
+
+        if selected_mechanism_latex is not None:
+            mechanism_id = mech_options_latex[selected_mechanism_latex]
+            mechanism_latex_doc = Mechanism.load_mechanism(mechanism_id)
+            if mechanism_latex_doc:
+                # LaTex Dokument erstellen
+                latex_doc = MechanismLatex.create_document(mechanism_latex_doc)
+                # Download-Button anzeigen
+                st.download_button(
+                    label="LaTex Dokument herunterladen",
+                    data=latex_doc,
+                    file_name=f"mechanism.tex",
+                    mime="text/x-tex",
+                    icon=":material/download:",
+                    help="Um das Dokument zu öffnen, benötigen Sie einen LaTex-Editor (z.B. Texmaker oder Overleaf)."
+                )
+            else:
+                st.error("Konnte nicht geladen werden.")
 
 # ================================================================================
 # Debugging (Session States anzeigen)
@@ -796,3 +941,6 @@ print("---------------------------------------------------------")
 print("Links:")
 for i in range(len(st.session_state["links"])):
     print(st.session_state["links"][i])
+print(f"Protected: {st.session_state["protected_links"]}")
+print("---------------------------------------------------------")
+print(f"Mechanismus laden: {st.session_state["load_interaction"] if st.session_state.get("load_interaction") else False}")

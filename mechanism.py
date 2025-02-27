@@ -7,12 +7,7 @@ from tinydb import Query
 import networkx as nx # zur Validierung der Konnektivität des Mechanismus
 import uuid # zur Generierung von eindeutiger Mechanismus-ID
 import csv  
-
-# =================================================================================================
-# Datenbanktabellen
-# =================================================================================================
-mechanism_table = DatabaseConnector().get_table('mechanism_configurations')
-kinematics_table = DatabaseConnector().get_table('mechanism_kinematics')
+import io
 
 # =================================================================================================
 # Joint und Link Klassen
@@ -31,6 +26,18 @@ class Joint:
     def __repr__(self):
         return f"Joint(x={self.x:.2f}, y={self.y:.2f}, type={self.type})"
 
+    def __eq__(self, other):
+        # Vergleich von Joint-Objekten (zwei Joints sind gleich, wenn alle Attribute gleich sind)
+        if not isinstance(other, Joint):
+            return False
+        return (
+            self.x == other.x 
+            and self.y == other.y 
+            and self.type == other.type 
+            and self.center == other.center
+            and self.radius == other.radius
+        )
+
 class Link:
     """
     Repräsentiert eine Verbindung zwischen zwei Joint-Objekten.
@@ -45,6 +52,17 @@ class Link:
     def __repr__(self):
         l_str = f"{self.length:.2f}" if self.length is not None else "None"
         return f"Link(start={self.start_joint}, end={self.end_joint}, length={l_str})"
+
+    def __eq__(self, other):
+        # Vergleich von Link-Objekten (zwei Links sind gleich, wenn alle Attribute gleich sind)
+        if not isinstance(other, Link):
+            return False
+        return (
+            self.start_joint == other.start_joint 
+            and self.end_joint == other.end_joint 
+            and self.length == other.length
+            and self.protected == other.protected
+        )
 
 # =================================================================================================
 # Mechanismus Validierung
@@ -86,13 +104,17 @@ def mechanism_is_valid(joints: list, links: list):
     # 3) Graphen-Konnektivität prüfen
     # ---------------------------------------------------------
     # Graph mit NetworkX aufbauen
+    # Python Objekte sind nicht hashbar, daher werden Indizes verwendet
     G = nx.Graph()
-    # Gelenke (Joint-Objekte) als Knoten hinzufügen
-    for j in joints:
-        G.add_node(j)
-    # Gestelle (Link-Objekte) als Kanten hinzufügen
+    # Gelenke (Index) als Knoten hinzufügen
+    for i, j in enumerate(joints):
+        G.add_node(i)
+    # Gestelle / Links basierend auf Indizes der Gelenke als Kanten hinzufügen
     for link in links:
-        G.add_edge(link.start_joint, link.end_joint)
+        start_idx = joints.index(link.start_joint)
+        end_idx = joints.index(link.end_joint)
+        G.add_edge(start_idx, end_idx)
+
     # Konnektivität prüfen
     if not nx.is_connected(G):
         return False, "Konfiguration ungültig: Mechanismus ist nicht zusammenhängend."
@@ -126,6 +148,30 @@ class Mechanism:
 
     def __repr__(self):
         return f"Mechanismus: {self.name}, ID: {self.id}, Version: {self.version}"
+    
+    def __eq__(self, other):
+        # Vergleich von Mechanismus-Objekten (zwei Mechanismen sind gleich, wenn alle Attribute gleich sind)
+        if not isinstance(other, Mechanism):
+            return False
+        # Vergleich Name
+        if self.name != other.name:
+            return False
+        
+        # Vergleich Joints:
+        if len(self.joints) != len(other.joints):
+            return False
+        for i in range(len(self.joints)):
+            if self.joints[i] != other.joints[i]:
+                return False
+        
+        # Vergleich Links:
+        if len(self.links) != len(other.links):
+            return False
+        for i in range(len(self.links)):
+            if self.links[i] != other.links[i]:
+                return False
+        
+        return True
     # ==============================
     # Kinematik-Methoden:
     # ==============================
@@ -292,6 +338,10 @@ class Mechanism:
         - Wenn bereits eine ID existiert, version += 1, da wir davon ausgehen, 
           dass sich der Mechanismus geändert hat.
         """
+        # Datenbankverbindung herstellen
+        db_conn = DatabaseConnector()
+        mechanism_table = db_conn.get_table('mechanism_configurations')
+
         if not self.id:
             # neuer Mechanismus
             self.id = str(uuid.uuid4())
@@ -336,7 +386,6 @@ class Mechanism:
             "joints": joints_list,
             "links": links_list
         }
-
         mechanism_query = Query()
         existing = mechanism_table.get(mechanism_query.id == self.id)
         if existing:
@@ -344,12 +393,18 @@ class Mechanism:
         else:
             mechanism_table.insert(data)
 
+        # Datenbankverbindung schließen
+        db_conn.close()
+
     @classmethod
     def load_mechanism(cls, mechanism_id: str):
         """
         Lädt einen Mechanismus anhand seiner 'id'.
         Gibt ein Mechanism-Objekt zurück oder None, wenn nicht gefunden.
         """
+        db_conn = DatabaseConnector()
+        mechanism_table = db_conn.get_table('mechanism_configurations')
+
         mechanism_query = Query()
         found = mechanism_table.get(mechanism_query.id == mechanism_id) # .get() statt .search(), da id eindeutig ist
         if not found:
@@ -388,6 +443,9 @@ class Mechanism:
             mechanism_id=found["id"],
             version=found["version"]
         )
+
+        db_conn.close()
+        
         return mechanism
 
     @classmethod
@@ -397,6 +455,9 @@ class Mechanism:
         In UI kann dann beispielsweise nur der Name angezeit werden.
         Mechanismus-Objekt wird erst beim Laden der Konfiguration erstellt.
         """
+        db_conn = DatabaseConnector()
+        mechanism_table = db_conn.get_table('mechanism_configurations')
+
         results = []
         for entry in mechanism_table.all():
             results.append({
@@ -404,6 +465,9 @@ class Mechanism:
                 "name": entry["name"],
                 "version": entry.get("version", 1)
             })
+
+        db_conn.close()
+
         return results
 
     @classmethod
@@ -411,20 +475,29 @@ class Mechanism:
         """
         Löscht den Mechanismus und den dazugehörigen Kinematik-Eintrag (falls vorhanden) anhand der ID.
         """
+        db_conn = DatabaseConnector()
+        mechanism_table = db_conn.get_table('mechanism_configurations')
+        kinematics_table = db_conn.get_table('mechanism_kinematics')
+
         mechanism_query = Query()
         mechanism_table.remove(mechanism_query.id == mechanism_id)
         kinematics_table.remove(mechanism_query.mechanism_id == mechanism_id)
-        
+
+        db_conn.close()
+
     # ==============================
     # Speichern und Laden von Mechanismus-Kinematik:
     # ==============================
-    def save_kinematics(self, theta_range, trajectories):
+    def save_kinematics(self, theta_range, trajectories, steps):
         """
         Speichert Kinematik-Daten in 'mechanism_kinematics'.
         - self.id muss existieren (Mechanismus muss gespeichert sein)
         - self.version = Mechanismus-Version
         - Überschreibt ggf. den alten Eintrag für diesen Mechanismus
         """
+        db_conn = DatabaseConnector()
+        kinematics_table = db_conn.get_table('mechanism_kinematics')
+
         # Prüfen, ob Mechanismus gespeichert ist
         if not self.id:
             raise ValueError("Mechanismus hat keine ID. Bitte speichern Sie den Mechanismus zuerst (Aufruf von save_mechanism()).")
@@ -437,29 +510,40 @@ class Mechanism:
             "mechanism_id": self.id,
             "mechanism_name": self.name,
             "mechanism_version": self.version,
+            "steps": steps,
             "theta_values": list(theta_range),
             "trajectories": [[(x, y) for (x, y) in frame] for frame in trajectories]
         }
 
         kinematics_table.insert(data)
 
+        db_conn.close()
+
     @classmethod
-    def load_kinematics(cls, mechanism_id: str, mechanism_version: int):
+    def load_kinematics(cls, mechanism_id: str, mechanism_version: int, steps: int):
         """
         Lädt Kinematik-Daten (theta_values, trajectories) aus 'mechanism_kinematics'.
         Falls die Version nicht übereinstimmt, ist die Kinematik veraltet.
         Gibt (theta_values, trajectories) zurück oder (None, None).
         """
+        db_conn = DatabaseConnector()
+        kinematics_table = db_conn.get_table('mechanism_kinematics')
+
         kinematic_query = Query()
         found = kinematics_table.get(kinematic_query.mechanism_id == mechanism_id)
         if not found:
             return None, None
         
         # Version prüfen
-        if found["mechanism_version"] != mechanism_version:
+        if steps == None:
+            steps = found["steps"]
+
+        if found["mechanism_version"] != mechanism_version and found["steps"] != steps:
             # Mechanismus wurde seitdem geändert -> Kinematik ist veraltet
             return None, None
         
+        db_conn.close()
+
         return found["theta_values"], found["trajectories"]
 
     @classmethod
@@ -467,8 +551,13 @@ class Mechanism:
         """
         Löscht Kinematik-Eintrag für einen Mechanismus.
         """
+        db_conn = DatabaseConnector()
+        kinematics_table = db_conn.get_table('mechanism_kinematics')
+
         kinematic_query = Query()
         kinematics_table.remove(kinematic_query.mechanism_id == mechanism_id)
+
+        db_conn.close()
 
 # =================================================================================================
 # Modul-Tests:
@@ -483,7 +572,7 @@ if __name__ == "__main__":
     j3 = Joint(x=2.0, y=0.0, joint_type="Fixiert")
 
     # Glieder anlegen
-    l0 = Link(j0, j1)
+    l0 = Link(j0, j1, protected=True)
     l1 = Link(j2, j1)
     l2 = Link(j3, j2)
     
@@ -503,7 +592,7 @@ if __name__ == "__main__":
     # Kinematik berechnen und speichern
     theta_range = mechanism.compute_theta_range(steps=100)
     trajectories, fail_count = mechanism.kinematics(theta_range)
-    mechanism.save_kinematics(theta_range, trajectories)
+    mechanism.save_kinematics(theta_range, trajectories, 100)
     print("Kinematik für Viergelenkgetriebe berechnet und gespeichert.")
     if fail_count:
         print(f"Anzahl fehlgeschlagener Optimierungen: {fail_count}")
@@ -515,7 +604,7 @@ if __name__ == "__main__":
     if mechanism_loaded:
         print("Geladener Mechanismus:", mechanism_loaded.name, mechanism_loaded.id, "Version =", mechanism_loaded.version)
         # Kinematik laden
-        thetas, trajs = Mechanism.load_kinematics(mechanism_loaded.id, mechanism_loaded.version)
+        thetas, trajs = Mechanism.load_kinematics(mechanism_loaded.id, mechanism_loaded.version, 100)
         if thetas is None:
             print("Keine Kinematik gefunden oder Kinematik veraltet.")
         else:
@@ -537,7 +626,7 @@ if __name__ == "__main__":
     j7 = Joint(0.67, -39.3, "Frei beweglich")
 
     # Glieder anlegen
-    l0 = Link(j1, j2)
+    l0 = Link(j1, j2, protected=True)
     l1 = Link(j3, j2)
     l2 = Link(j3, j4)
     l3 = Link(j5, j4)
@@ -565,7 +654,7 @@ if __name__ == "__main__":
     # Kinematik berechnen und speichern
     theta_range = mechanism.compute_theta_range(steps=100)
     trajectories, fail_count = mechanism.kinematics(theta_range)
-    mechanism.save_kinematics(theta_range, trajectories)
+    mechanism.save_kinematics(theta_range, trajectories, 100)
     print("Kinematik für Strandbeest berechnet und gespeichert.")
     if fail_count:
         print(f"Anzahl fehlgeschlagener Optimierungen: {fail_count}")
@@ -577,7 +666,7 @@ if __name__ == "__main__":
     if mechanism_loaded:
         print("Geladener Mechanismus:", mechanism_loaded.name, mechanism_loaded.id, "Version =", mechanism_loaded.version)
         # Kinematik laden
-        thetas, trajs = Mechanism.load_kinematics(mechanism_loaded.id, mechanism_loaded.version)
+        thetas, trajs = Mechanism.load_kinematics(mechanism_loaded.id, mechanism_loaded.version, 100)
         if thetas is None:
             print("Keine Kinematik gefunden oder Kinematik veraltet.")
         else:
