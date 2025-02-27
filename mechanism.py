@@ -7,7 +7,6 @@ from tinydb import Query
 import networkx as nx # zur Validierung der Konnektivität des Mechanismus
 import uuid # zur Generierung von eindeutiger Mechanismus-ID
 import csv  
-import io
 
 # =================================================================================================
 # Joint und Link Klassen

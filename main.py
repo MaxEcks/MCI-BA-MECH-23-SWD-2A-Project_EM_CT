@@ -8,8 +8,6 @@ from visualization import Visualizer
 from movement_speed import StrandbeestSpeed
 from markup_language import MechanismLatex
 import time
-import os
-import json
 from database import DatabaseConnector
 from datetime import date
 
